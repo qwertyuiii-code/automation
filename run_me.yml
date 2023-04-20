@@ -1,0 +1,83 @@
+- name: Install and setup UFW, add user, setup timeserver, open docker and setup docker compose
+  hosts: all
+  become: yes
+
+  vars:
+    ufw_allowed_ports:
+            - 80
+            - 8080
+            - 1834
+            - 1337
+            - 123
+    user_name: admin
+    user_password: secretpassword
+
+  tasks:
+     - name: Install UFW
+       apt: 
+         name: ufw
+         state: present
+
+     - name: Activation UFW
+       service:
+         name: ufw
+         enabled: yes
+         state: started
+
+     - name: Allow some ports for normal work UFW
+       ufw:
+         rule: allow
+         port: "{{ item }}"
+         state: enabled-
+       loop: "{{ ufw_allowed_ports }}"
+    
+
+
+     - name: Create User
+        user:
+          name: "{{ user_name }}"
+          password: "{{ user_password | password_hash('sha512') }}"
+          groups: sudo
+          shell: /bin/bash
+          state: present
+
+      - name: Create File users.yml
+        copy:
+          dest: /home/{{ user_name }}/users.yml
+          content: |
+            username: "{{ user_name }}"
+            password: "{{ user_password }}"
+        notify: encrypt file
+
+      - name: Install ntp
+        apt:
+          name: ntp
+          state: present
+
+      - name: Configure NTP servers
+        lineinfile:
+           path: /etc/systemd/timesyncd.conf
+           regexp: '^NTP=.*'
+           line: 'NTP=ntp1.strarum2.ru'
+
+      - name: Enable systemd-timesyncd
+        systemd:
+          name: systemd-timesyncd
+          enabled: yes
+          state: started
+
+      - name: Install Docker-Compose
+        apt:
+          name: docker-compose
+          state: latest
+        when: ansible_os_family == "Debian"
+     
+      - name: Start Docker Compose project
+        docker_compose:
+          project_name: my_project
+          state: started
+          recreate: yes
+          file: /home/user/docker-compose.yml
+- handlers:
+    - name: Encrypt File users.yml
+      command: ansible-vault encrypt /home/{{ user_name }}/users.yml --vault-password-file=<(echo "P@ssw0rd2022)"
